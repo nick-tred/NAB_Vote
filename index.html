@@ -356,11 +356,11 @@
                         <select id="replaceBeerSelect" class="w-full px-3 py-2 border-2 border-gray-300 rounded-lg text-sm font-medium focus:border-blue-500 focus:outline-none">
                             ${data.candidates.map(c => `
                                 <option value="${c.id}"${c.soldOut ? ' selected' : ''}>
-                                    ${sanitize(c.name)}${c.soldOut ? ' (Sold Out)' : ''}
+                                    ${sanitize(c.name)}${c.group ? ` (${sanitize(c.group)})` : ''}${c.soldOut ? ' — Sold Out' : ''}
                                 </option>
                             `).join('')}
                         </select>
-                        <p class="text-xs text-gray-400 mt-2 italic">The selected beer will be hidden from the tap list. Its existing votes stay intact.</p>
+                        <p class="text-xs text-gray-400 mt-2 italic">The selected beer is taken off the tap list. The reserve goes on in its own section as a new entry. Existing votes stay intact.</p>
                     </div>`;
             }
             
@@ -1650,15 +1650,22 @@
             if (!isAdmin) return;
             const reserve = getBeerById(reserveId);
             if (!reserve) return;
-            // Find candidate beers to replace: active, same group, sold-out beers first
+            // Reserves can replace ANY active beer — a backup cask doesn't know in advance
+            // which tap it'll be put on. List sold-out beers first since they're the most
+            // likely targets, then the rest, all sorted by their tap position.
             const candidates = beers.filter(b => 
                 b.id !== reserveId 
                 && (b.status || 'active') === 'active'
-                && b.group === reserve.group
             ).sort((a, b) => {
-                // Sold-out beers first (more likely to be the one being replaced)
+                // Sold-out beers first (most likely replacement targets)
                 if (a.soldOut && !b.soldOut) return -1;
                 if (!a.soldOut && b.soldOut) return 1;
+                // Then by tap order — same sort getSortedBeers uses, so #1, #2, #3 etc.
+                const ga = getGroupByName(a.group);
+                const gb = getGroupByName(b.group);
+                const groupOrderA = ga ? (ga.order !== undefined ? ga.order : 9999) : 99999;
+                const groupOrderB = gb ? (gb.order !== undefined ? gb.order : 9999) : 99999;
+                if (groupOrderA !== groupOrderB) return groupOrderA - groupOrderB;
                 return (a.order || 0) - (b.order || 0);
             });
             pendingAdminAction = {
@@ -1666,10 +1673,10 @@
                 title: `Activate "${reserve.name}"`,
                 message: candidates.length > 0
                     ? `This reserve will replace one of the beers below and take its position on the tap list. Pick the beer it's replacing:`
-                    : `No active beers in the "${reserve.group || 'Other'}" group to replace. The reserve will simply be activated and appended to the list.`,
+                    : `No active beers to replace. The reserve will simply be activated and appended to the list.`,
                 confirmText: 'Activate Reserve',
                 icon: 'zap',
-                data: { reserveId, candidates: candidates.map(c => ({ id: c.id, name: c.name, soldOut: !!c.soldOut })) }
+                data: { reserveId, candidates: candidates.map(c => ({ id: c.id, name: c.name, soldOut: !!c.soldOut, group: c.group || '' })) }
             };
             render();
         };
@@ -1866,12 +1873,14 @@
                     const reserveRef = doc(db, ...getPublicDataPathSegments(), BEERS_COLLECTION_NAME, reserveId);
                     
                     if (replaced) {
-                        // Reserve takes the replaced beer's order field (so it gets the same number)
-                        // and the replaced beer is retired (hidden but not deleted)
+                        // Reserve keeps its OWN group (a Special reserve stays a Special, even if
+                        // it's replacing an Amber that blew). Reserve gets an order at the end of
+                        // its own group so it appears as a new entry there. The replaced beer is
+                        // retired (hidden but not deleted, votes preserved).
                         const replacedRef = doc(db, ...getPublicDataPathSegments(), BEERS_COLLECTION_NAME, replaced.id);
                         batch.update(reserveRef, {
                             status: 'active',
-                            order: replaced.order || 0,
+                            order: beers.length * 10,
                             activatedAt: serverTimestamp()
                         });
                         batch.update(replacedRef, {
@@ -1879,7 +1888,7 @@
                             order: 9999  // push to end if ever shown again
                         });
                     } else {
-                        // No replacement — just activate at end of list
+                        // No replacement — just activate at end of list, keep its own group
                         batch.update(reserveRef, {
                             status: 'active',
                             order: beers.length * 10,
@@ -1941,4 +1950,4 @@
         window.toggleDesc = (id) => { const el = document.getElementById(id); if (el) el.classList.toggle('hidden'); };
     </script>
 </body>
-</html> 
+</html>
