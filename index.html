@@ -1901,6 +1901,16 @@
                     const reserveRef = doc(db, ...getPublicDataPathSegments(), BEERS_COLLECTION_NAME, reserveId);
                     
                     if (replaced) {
+                        // DEBUG: log what we're about to write
+                        console.log('[activate]', {
+                            reserveName: reserve.name,
+                            reserveOldOrder: reserve.order,
+                            reserveOldGroup: reserve.group,
+                            replacedName: replaced.name,
+                            replacedOrder: replaced.order,
+                            replacedGroup: replaced.group,
+                            willWriteReserveOrder: replaced.order !== undefined ? replaced.order : (beers.length * 10)
+                        });
                         // Reserve keeps its OWN group (a Special reserve stays a Special).
                         // But it INHERITS the replaced beer's order field so it slots into
                         // the same number position within its own group. The replaced beer
@@ -1925,6 +1935,7 @@
                     }
                     
                     await batch.commit();
+                    console.log('[activate] batch committed');
                     message = replaced
                         ? `**${reserve.name}** is now on tap, replacing **${replaced.name}**.`
                         : `**${reserve.name}** is now on tap.`;
