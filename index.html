@@ -668,7 +668,7 @@
             // Bucket beers by group, preserving group order from getSortedBeers().
             // Beers without a recognised group go into a final "Other" bucket.
             const beerGroups = new Map(); // groupName -> { color, beers: [{ beer, beerNum }] }
-            sortedBeers.slice(0, 24).forEach((beer, index) => {
+            sortedBeers.forEach((beer, index) => {
                 const groupDoc = getGroupByName(beer.group);
                 const groupName = groupDoc ? groupDoc.name : (beer.group || 'Other');
                 const color = groupDoc ? (groupDoc.color || '#8A7438') : '#8A7438';
