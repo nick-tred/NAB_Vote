@@ -1116,6 +1116,11 @@
                                                 <i data-lucide="zap" class="w-3.5 h-3.5 inline -mt-0.5 mr-0.5"></i>Activate
                                             </button>
                                         ` : ''}
+                                        ${isRetired ? `
+                                            <button onclick="handleReactivateBeer('${beer.id}')" title="Bring this beer back to the tap list" class="px-3 py-1.5 mr-1 rounded bg-gray-600 text-white text-xs font-bold hover:bg-gray-700 transition flex-shrink-0">
+                                                <i data-lucide="undo-2" class="w-3.5 h-3.5 inline -mt-0.5 mr-0.5"></i>Reactivate
+                                            </button>
+                                        ` : ''}
                                         ${!isReserve && !isRetired ? `
                                             <button onclick="handleToggleSoldOut('${beer.id}')" title="${beer.soldOut ? 'Mark as available' : 'Mark as sold out'}" class="p-2 mr-1 rounded transition ${beer.soldOut ? 'text-red-600 bg-red-100 hover:bg-red-200' : 'text-gray-400 hover:text-red-500 hover:bg-red-50'}">
                                                 <i data-lucide="${beer.soldOut ? 'ban' : 'beer'}" class="w-4 h-4"></i>
@@ -1642,6 +1647,29 @@
             }
         };
 
+        // Bring a retired beer back to active status. Used when admin marked the wrong beer
+        // as the replacement during reserve activation. Also clears soldOut so it's not
+        // immediately re-hidden as a sold-out beer.
+        window.handleReactivateBeer = async (beerId) => {
+            if (!isAdmin) return;
+            const beer = getBeerById(beerId);
+            if (!beer) return;
+            const beerRef = doc(db, ...getPublicDataPathSegments(), BEERS_COLLECTION_NAME, beerId);
+            try {
+                await updateDoc(beerRef, {
+                    status: 'active',
+                    soldOut: false,
+                    // Fresh order at the end of the list so it reappears as a new entry in its group
+                    order: beers.length * 10
+                });
+                message = `**${beer.name}** is back on the tap list.`;
+                render();
+            } catch (error) {
+                message = `Could not reactivate: ${error.message}`;
+                render();
+            }
+        };
+
         // ---------- Reserve activation ----------
         // Admin clicks "Activate" on a reserve → modal asks which active beer it replaces.
         // The replacement beer is moved to status 'retired' (hidden) and the reserve takes
@@ -1873,14 +1901,14 @@
                     const reserveRef = doc(db, ...getPublicDataPathSegments(), BEERS_COLLECTION_NAME, reserveId);
                     
                     if (replaced) {
-                        // Reserve keeps its OWN group (a Special reserve stays a Special, even if
-                        // it's replacing an Amber that blew). Reserve gets an order at the end of
-                        // its own group so it appears as a new entry there. The replaced beer is
-                        // retired (hidden but not deleted, votes preserved).
+                        // Reserve keeps its OWN group (a Special reserve stays a Special).
+                        // But it INHERITS the replaced beer's order field so it slots into
+                        // the same number position within its own group. The replaced beer
+                        // is retired (hidden but not deleted, votes preserved).
                         const replacedRef = doc(db, ...getPublicDataPathSegments(), BEERS_COLLECTION_NAME, replaced.id);
                         batch.update(reserveRef, {
                             status: 'active',
-                            order: beers.length * 10,
+                            order: replaced.order !== undefined ? replaced.order : (beers.length * 10),
                             activatedAt: serverTimestamp()
                         });
                         batch.update(replacedRef, {
