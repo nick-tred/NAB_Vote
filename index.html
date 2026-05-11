@@ -209,6 +209,16 @@
         // Active = visible on voting/TV. Reserves and retired beers are hidden from punters.
         const getActiveBeers = () => getSortedBeers().filter(b => (b.status || 'active') === 'active');
 
+        // Find the lowest unused tap number across ALL beers (including reserves/retired —
+        // we don't want to assign a reserve a number that's already taken by an active beer).
+        // Used for auto-assigning when admin adds a beer without specifying a number.
+        const getNextAvailableTapNumber = () => {
+            const used = new Set(beers.map(b => b.tapNumber).filter(n => typeof n === 'number' && n > 0));
+            let n = 1;
+            while (used.has(n)) n++;
+            return n;
+        };
+
         // Returns the beer ID with the most recent activatedAt timestamp among active beers,
         // or null if none. Used to flag "NOW POURING" on the most-recently-activated reserve.
         const getNowPouringId = () => {
@@ -356,11 +366,11 @@
                         <select id="replaceBeerSelect" class="w-full px-3 py-2 border-2 border-gray-300 rounded-lg text-sm font-medium focus:border-blue-500 focus:outline-none">
                             ${data.candidates.map(c => `
                                 <option value="${c.id}"${c.soldOut ? ' selected' : ''}>
-                                    ${sanitize(c.name)}${c.group ? ` (${sanitize(c.group)})` : ''}${c.soldOut ? ' — Sold Out' : ''}
+                                    ${c.tapNumber ? `#${c.tapNumber} — ` : ''}${sanitize(c.name)}${c.group ? ` (${sanitize(c.group)})` : ''}${c.soldOut ? ' — Sold Out' : ''}
                                 </option>
                             `).join('')}
                         </select>
-                        <p class="text-xs text-gray-400 mt-2 italic">The selected beer is taken off the tap list. If the reserve is in the same group it takes the same number; if a different group it slots into its own section. Existing votes stay intact.</p>
+                        <p class="text-xs text-gray-400 mt-2 italic">The reserve takes over the selected beer's tap number. The replaced beer is hidden from the tap list. Existing votes stay intact.</p>
                     </div>`;
             }
             
@@ -397,7 +407,11 @@
                             <input type="text" name="name" placeholder="Beer Name" class="px-3 py-2 border rounded w-full" value="${sanitize(beer.name)}" required />
                             <input type="text" name="brewer" placeholder="Brewer" class="px-3 py-2 border rounded w-full" value="${sanitize(beer.brewer)}" required />
                             <input type="text" name="style" placeholder="Style" class="px-3 py-2 border rounded w-full" value="${sanitize(beer.style)}" required />
-                            <input type="number" name="abv" placeholder="ABV %" step="0.1" class="px-3 py-2 border rounded w-full" value="${sanitize(beer.abv)}" required />
+                            <div class="grid grid-cols-3 gap-2">
+                                <label class="text-xs text-gray-500 col-span-3 -mb-1">Tap number</label>
+                                <input type="number" name="tapNumber" placeholder="Tap #" min="1" class="px-3 py-2 border rounded w-full" value="${beer.tapNumber !== undefined ? sanitize(beer.tapNumber) : ''}" />
+                                <input type="number" name="abv" placeholder="ABV %" step="0.1" class="px-3 py-2 border rounded w-full col-span-2" value="${sanitize(beer.abv)}" required />
+                            </div>
                             <div class="grid grid-cols-2 gap-2">
                                 <select name="group" class="px-3 py-2 border rounded w-full bg-white">
                                     <option value=""${!beer.group ? ' selected' : ''}>Group (optional)</option>
@@ -471,10 +485,7 @@
             const yourScore = userVotesMap[beer.id];
             const hasImage = beer.imageUrl && beer.imageUrl.trim();
             const hasDesc = beer.description && beer.description.trim();
-
-            // Find the beer's display number based on sorted order
-            const sortedBeers = getSortedBeers();
-            const beerNum = sortedBeers.findIndex(b => b.id === beer.id) + 1;
+            const beerNum = beer.tapNumber || '?';
 
             return `
                 <div class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-40 p-2 sm:p-4 animate-in fade-in duration-200" onclick="closeBeerDetail()">
@@ -667,15 +678,26 @@
 
             // Bucket beers by group, preserving group order from getSortedBeers().
             // Beers without a recognised group go into a final "Other" bucket.
+            // Each beer carries its own tapNumber — a stable identifier independent of
+            // display position. Reserves inherit a tap number when activated, so the
+            // number sticks to the beer rather than to a slot in the list.
             const beerGroups = new Map(); // groupName -> { color, beers: [{ beer, beerNum }] }
-            sortedBeers.forEach((beer, index) => {
+            sortedBeers.forEach((beer) => {
                 const groupDoc = getGroupByName(beer.group);
                 const groupName = groupDoc ? groupDoc.name : (beer.group || 'Other');
                 const color = groupDoc ? (groupDoc.color || '#8A7438') : '#8A7438';
                 if (!beerGroups.has(groupName)) {
                     beerGroups.set(groupName, { color, beers: [] });
                 }
-                beerGroups.get(groupName).beers.push({ beer, beerNum: index + 1 });
+                beerGroups.get(groupName).beers.push({ beer, beerNum: beer.tapNumber || '?' });
+            });
+            // Within each group, sort by tap number ascending so the section reads in order
+            beerGroups.forEach((bucket) => {
+                bucket.beers.sort((a, b) => {
+                    const na = parseInt(a.beerNum) || 9999;
+                    const nb = parseInt(b.beerNum) || 9999;
+                    return na - nb;
+                });
             });
 
             const renderBeerCard = ({ beer, beerNum }) => {
@@ -825,15 +847,21 @@
                         </div>
                         <div>`;
                 
-                // Bucket beers by group, preserving the order they appear in votingBeers
-                // (which is already sorted by group order via getSortedBeers).
-                // Beers without a recognised group fall to "Other" at the end.
-                // Numbers run continuously across groups so beer #14 is always #14.
+                // Bucket beers by group. Each beer carries its own tapNumber (stable
+                // across reserve activation) — display order within a group is just by
+                // tap number ascending.
                 const grouped = new Map();
-                votingBeers.forEach((beer, index) => {
+                votingBeers.forEach((beer) => {
                     const g = beer.group || 'Other';
                     if (!grouped.has(g)) grouped.set(g, []);
-                    grouped.get(g).push({ beer, beerNum: index + 1 });
+                    grouped.get(g).push({ beer, beerNum: beer.tapNumber || '?' });
+                });
+                grouped.forEach((arr) => {
+                    arr.sort((a, b) => {
+                        const na = parseInt(a.beerNum) || 9999;
+                        const nb = parseInt(b.beerNum) || 9999;
+                        return na - nb;
+                    });
                 });
                 
                 grouped.forEach((beerList, groupName) => {
@@ -998,10 +1026,11 @@
                                     <input type="text" name="name" placeholder="Beer Name" class="px-3 py-2 border rounded w-full" required />
                                     <input type="text" name="brewer" placeholder="Brewer" class="px-3 py-2 border rounded w-full" required />
                                 </div>
-                                <div class="grid grid-cols-2 gap-2">
-                                    <input type="text" name="style" placeholder="Style" class="px-3 py-2 border rounded w-full" required />
-                                    <input type="number" name="abv" placeholder="ABV %" step="0.1" class="px-3 py-2 border rounded w-full" required />
+                                <div class="grid grid-cols-3 gap-2">
+                                    <input type="text" name="style" placeholder="Style" class="px-3 py-2 border rounded w-full col-span-2" required />
+                                    <input type="number" name="tapNumber" placeholder="Tap # (auto)" min="1" class="px-3 py-2 border rounded w-full" title="Leave blank to auto-assign next available tap number" />
                                 </div>
+                                <input type="number" name="abv" placeholder="ABV %" step="0.1" class="px-3 py-2 border rounded w-full" required />
                                 <div class="grid grid-cols-2 gap-2">
                                     <select name="group" class="px-3 py-2 border rounded w-full bg-white">
                                         <option value="">Group (optional)</option>
@@ -1030,7 +1059,7 @@
 
                             <div class="mb-8 pb-8 border-b border-gray-100">
                                 <h3 class="font-bold text-gray-700 mb-2">Import Beers from CSV</h3>
-                                <p class="text-xs text-gray-500 mb-3">Columns: <span class="font-mono bg-gray-100 px-1 rounded">name, brewer, style, abv</span> &middot; optional: <span class="font-mono bg-gray-100 px-1 rounded">description, group, allergens, vegan, status, image</span> &middot; <em>status: "reserve" hides until activated; default is active</em></p>
+                                <p class="text-xs text-gray-500 mb-3">Columns: <span class="font-mono bg-gray-100 px-1 rounded">name, brewer, style, abv</span> &middot; optional: <span class="font-mono bg-gray-100 px-1 rounded">description, group, allergens, vegan, status, tap, image</span> &middot; <em>tap column is the tap number — leave blank to auto-assign</em></p>
                                 <div class="space-y-2">
                                     <input type="file" id="csvFileInput" accept=".csv,.tsv,.txt" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100" />
                                     <div id="csvPreview"></div>
@@ -1104,6 +1133,7 @@
                                         </div>
                                         <div class="flex-grow min-w-0">
                                             <div class="font-bold text-gray-800 text-sm truncate">
+                                                ${beer.tapNumber ? `<span class="inline-block text-[10px] font-black text-white bg-slate-700 px-1.5 py-0.5 rounded mr-1 align-middle">#${beer.tapNumber}</span>` : ''}
                                                 ${sanitize(beer.name)}
                                                 ${isReserve ? '<span class="ml-1.5 text-[10px] font-bold text-blue-700 bg-blue-200 px-1.5 py-0.5 rounded uppercase tracking-wide align-middle">Reserve</span>' : ''}
                                                 ${isRetired ? '<span class="ml-1.5 text-[10px] font-bold text-gray-600 bg-gray-300 px-1.5 py-0.5 rounded uppercase tracking-wide align-middle">Retired</span>' : ''}
@@ -1376,6 +1406,7 @@
             const allergensIdx = headers.findIndex(h => h === 'allergens' || h === 'allergen');
             const veganIdx = headers.findIndex(h => h === 'vegan' || h === 'vg');
             const statusIdx = headers.findIndex(h => h === 'status' || h === 'reserve');
+            const tapNumberIdx = headers.findIndex(h => h === 'tap' || h === 'tap_number' || h === 'tapnumber' || h === 'tap number' || h === 'tap#');
 
             if (nameIdx === -1) return [];
 
@@ -1417,7 +1448,8 @@
                     group: groupIdx !== -1 ? groupNorm(cols[groupIdx]) : '',
                     allergens: allergensIdx !== -1 ? (cols[allergensIdx] || '') : '',
                     vegan: veganIdx !== -1 ? veganNorm(cols[veganIdx]) : false,
-                    status: statusIdx !== -1 ? statusNorm(cols[statusIdx]) : 'active'
+                    status: statusIdx !== -1 ? statusNorm(cols[statusIdx]) : 'active',
+                    tapNumber: tapNumberIdx !== -1 ? (parseInt(cols[tapNumberIdx]) || null) : null
                 });
             }
             return results;
@@ -1459,6 +1491,17 @@
                     const chunk = pendingImportBeers.slice(i, i + BATCH_LIMIT);
                     chunk.forEach((beer, idx) => {
                         const ref = doc(collection(db, ...getPublicDataPathSegments(), BEERS_COLLECTION_NAME));
+                        // Auto-assign tap number for this beer. We use a local "claimed" set
+                        // alongside getNextAvailableTapNumber so beers within the same batch
+                        // don't all grab the same number.
+                        if (!window._claimedTapNumbers) {
+                            window._claimedTapNumbers = new Set(
+                                beers.map(b => b.tapNumber).filter(n => typeof n === 'number')
+                            );
+                        }
+                        let tap = beer.tapNumber || 1;
+                        while (window._claimedTapNumbers.has(tap)) tap++;
+                        window._claimedTapNumbers.add(tap);
                         batch.set(ref, {
                             name: beer.name,
                             brewer: beer.brewer,
@@ -1470,12 +1513,15 @@
                             allergens: beer.allergens || '',
                             vegan: !!beer.vegan,
                             status: beer.status || 'active',
+                            tapNumber: tap,
                             order: startOrder + ((i + idx) * 10),
                             created: serverTimestamp()
                         });
                     });
                     await batch.commit();
                 }
+                // Clear the per-import claim set so a future import starts fresh
+                delete window._claimedTapNumbers;
                 message = `Successfully imported ${pendingImportBeers.length} beers!`;
                 pendingImportBeers = [];
             } catch (error) {
@@ -1534,6 +1580,9 @@
                     finalImageUrl = await compressImageToBase64(imageFile);
                 }
 
+                const manualTap = form.tapNumber?.value ? parseInt(form.tapNumber.value) : null;
+                const tapNumber = manualTap && manualTap > 0 ? manualTap : getNextAvailableTapNumber();
+
                 await addDoc(collection(db, ...getPublicDataPathSegments(), BEERS_COLLECTION_NAME), {
                     name: beerName,
                     brewer: form.brewer.value.trim(),
@@ -1545,6 +1594,7 @@
                     allergens: (form.allergens?.value || '').trim(),
                     vegan: !!(form.vegan?.checked),
                     status: form.isReserve?.checked ? 'reserve' : 'active',
+                    tapNumber,
                     order: beers.length * 10,
                     created: serverTimestamp()
                 });
@@ -1601,6 +1651,7 @@
                     allergens: (form.allergens?.value || '').trim(),
                     vegan: !!(form.vegan?.checked),
                     status: form.status?.value || 'active',
+                    tapNumber: form.tapNumber?.value ? parseInt(form.tapNumber.value) : null,
                     order: form.order.value ? parseInt(form.order.value) : 9999,
                     updated: serverTimestamp()
                 };
@@ -1704,7 +1755,7 @@
                     : `No active beers to replace. The reserve will simply be activated and appended to the list.`,
                 confirmText: 'Activate Reserve',
                 icon: 'zap',
-                data: { reserveId, candidates: candidates.map(c => ({ id: c.id, name: c.name, soldOut: !!c.soldOut, group: c.group || '' })) }
+                data: { reserveId, candidates: candidates.map(c => ({ id: c.id, name: c.name, soldOut: !!c.soldOut, group: c.group || '', tapNumber: c.tapNumber || null })) }
             };
             render();
         };
@@ -1909,25 +1960,26 @@
                     const reserveRef = doc(db, ...getPublicDataPathSegments(), BEERS_COLLECTION_NAME, reserveId);
                     
                     if (replaced) {
-                        // Reserve keeps its OWN group (a Special reserve stays a Special).
-                        // But it INHERITS the replaced beer's order field so it slots into
-                        // the same number position within its own group. The replaced beer
-                        // is retired (hidden but not deleted, votes preserved).
+                        // Reserve keeps its OWN group (a Special stays a Special).
+                        // It inherits the replaced beer's tapNumber — the number is a
+                        // property of the tap, so it transfers to whatever's poured next.
+                        // The replaced beer is retired (hidden but not deleted, votes preserved)
+                        // and its tapNumber is cleared so it's not double-used.
                         const replacedRef = doc(db, ...getPublicDataPathSegments(), BEERS_COLLECTION_NAME, replaced.id);
                         batch.update(reserveRef, {
                             status: 'active',
-                            order: replaced.order !== undefined ? replaced.order : (beers.length * 10),
+                            tapNumber: replaced.tapNumber || getNextAvailableTapNumber(),
                             activatedAt: serverTimestamp()
                         });
                         batch.update(replacedRef, {
                             status: 'retired',
-                            order: 9999  // push to end if ever shown again
+                            tapNumber: null  // free up the number
                         });
                     } else {
-                        // No replacement — just activate at end of list, keep its own group
+                        // No replacement — activate with a fresh tap number
                         batch.update(reserveRef, {
                             status: 'active',
-                            order: beers.length * 10,
+                            tapNumber: reserve.tapNumber || getNextAvailableTapNumber(),
                             activatedAt: serverTimestamp()
                         });
                     }
