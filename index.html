@@ -408,7 +408,7 @@
                             <input type="text" name="brewer" placeholder="Brewer" class="px-3 py-2 border rounded w-full" value="${sanitize(beer.brewer)}" required />
                             <input type="text" name="style" placeholder="Style" class="px-3 py-2 border rounded w-full" value="${sanitize(beer.style)}" required />
                             <div class="grid grid-cols-3 gap-2">
-                                <label class="text-xs text-gray-500 col-span-3 -mb-1">Tap number</label>
+                                <label class="text-xs text-gray-500 col-span-3 -mb-1">Tap Number</label>
                                 <input type="number" name="tapNumber" placeholder="Tap #" min="1" class="px-3 py-2 border rounded w-full" value="${beer.tapNumber !== undefined ? sanitize(beer.tapNumber) : ''}" />
                                 <input type="number" name="abv" placeholder="ABV %" step="0.1" class="px-3 py-2 border rounded w-full col-span-2" value="${sanitize(beer.abv)}" required />
                             </div>
@@ -441,7 +441,10 @@
                                 <input type="file" name="imageFile" accept="image/*" class="block w-full text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100" />
                                 <p class="text-xs text-gray-400 mt-1">Or paste a URL: <input type="url" name="imageUrl" placeholder="https://..." class="inline-block px-2 py-1 border rounded text-xs w-48 ml-1" value="${sanitize(beer.imageUrl || '')}" /></p>
                             </div>
-                            <input type="number" name="order" placeholder="Order (0 for top)" class="px-3 py-2 border rounded w-full" value="${beer.order !== undefined ? beer.order : ''}" />
+                            <div>
+                                <label class="text-xs text-gray-500 mb-1 block">Admin List Sort Order <span class="text-gray-400">(only affects the admin list, not the tap list)</span></label>
+                                <input type="number" name="order" placeholder="Order" class="px-3 py-2 border rounded w-full" value="${beer.order !== undefined ? beer.order : ''}" />
+                            </div>
 
                             <div class="grid grid-cols-2 gap-3 mt-6">
                                 <button type="button" onclick="cancelAction()" class="w-full py-3 px-4 border border-gray-300 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-50 transition duration-150">Cancel</button>
