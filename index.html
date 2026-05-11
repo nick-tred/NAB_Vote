@@ -699,9 +699,14 @@
                 }
                 beerGroups.get(groupName).beers.push({ beer, beerNum: beer.tapNumber || '?' });
             });
-            // Within each group, sort by tap number ascending so the section reads in order
+            // Within each group, sold-out beers fall to the bottom. Active beers above
+            // them, in tap-number order. Sold-out beers below, also in tap-number order
+            // (consistent ordering within each tier).
             beerGroups.forEach((bucket) => {
                 bucket.beers.sort((a, b) => {
+                    const aSold = !!a.beer.soldOut;
+                    const bSold = !!b.beer.soldOut;
+                    if (aSold !== bSold) return aSold ? 1 : -1;
                     const na = parseInt(a.beerNum) || 9999;
                     const nb = parseInt(b.beerNum) || 9999;
                     return na - nb;
@@ -712,9 +717,14 @@
                 const soldOut = !!beer.soldOut;
                 const hasAllergens = beer.allergens && beer.allergens.trim();
                 const isNowPouring = beer.id === nowPouringId;
+                // Sold-out beers don't show a tap number — the tap they were on is either
+                // empty or has a different beer on it now. Keep the badge slot the same size
+                // for layout consistency, but render it as a neutral empty circle.
+                const badgeContent = soldOut ? '—' : beerNum;
+                const badgeBg = soldOut ? '#9ca3af' : (isNowPouring ? '#2563eb' : '#1e293b');
                 return `
                     <div class="flex items-center gap-2.5 py-1.5 border-b border-dashed ${soldOut ? 'opacity-40' : ''} ${isNowPouring ? 'relative' : ''}" style="border-color: rgba(194, 168, 88, 0.35);${isNowPouring ? 'background: linear-gradient(90deg, rgba(37, 99, 235, 0.08) 0%, transparent 100%);' : ''}">
-                        <div class="flex-shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full font-black text-base shadow-md" style="background-color: ${soldOut ? '#9ca3af' : (isNowPouring ? '#2563eb' : '#1e293b')}; color: #FAF6EC;">${beerNum}</div>
+                        <div class="flex-shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full font-black text-base shadow-md" style="background-color: ${badgeBg}; color: #FAF6EC;">${badgeContent}</div>
                         <div class="flex-grow min-w-0">
                             <div class="flex items-center gap-1.5">
                                 <div class="font-extrabold text-gray-900 text-base leading-tight truncate">${sanitize(beer.name)}</div>
