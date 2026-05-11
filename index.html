@@ -408,9 +408,14 @@
                             <input type="text" name="brewer" placeholder="Brewer" class="px-3 py-2 border rounded w-full" value="${sanitize(beer.brewer)}" required />
                             <input type="text" name="style" placeholder="Style" class="px-3 py-2 border rounded w-full" value="${sanitize(beer.style)}" required />
                             <div class="grid grid-cols-3 gap-2">
-                                <label class="text-xs text-gray-500 col-span-3 -mb-1">Tap Number</label>
-                                <input type="number" name="tapNumber" placeholder="Tap #" min="1" class="px-3 py-2 border rounded w-full" value="${beer.tapNumber !== undefined ? sanitize(beer.tapNumber) : ''}" />
-                                <input type="number" name="abv" placeholder="ABV %" step="0.1" class="px-3 py-2 border rounded w-full col-span-2" value="${sanitize(beer.abv)}" required />
+                                <div>
+                                    <label class="text-xs text-gray-500 block mb-1">Tap Number</label>
+                                    <input type="number" name="tapNumber" placeholder="Tap #" min="1" class="px-3 py-2 border rounded w-full" value="${beer.tapNumber !== undefined ? sanitize(beer.tapNumber) : ''}" />
+                                </div>
+                                <div class="col-span-2">
+                                    <label class="text-xs text-gray-500 block mb-1">ABV %</label>
+                                    <input type="number" name="abv" placeholder="ABV %" step="0.1" class="px-3 py-2 border rounded w-full" value="${sanitize(beer.abv)}" required />
+                                </div>
                             </div>
                             <div class="grid grid-cols-2 gap-2">
                                 <select name="group" class="px-3 py-2 border rounded w-full bg-white">
