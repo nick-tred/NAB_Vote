@@ -1859,6 +1859,16 @@
         window.confirmAdminAction = async (actionType) => {
             if (!isAdmin || !pendingAdminAction) return;
             const { data } = pendingAdminAction;
+            
+            // IMPORTANT: read any modal form inputs BEFORE clearing pendingAdminAction.
+            // Once we null it out and re-render, the modal DOM is gone and querySelector
+            // returns null. For activateReserve we need the dropdown selection to survive.
+            let capturedReplaceId = null;
+            if (actionType === 'activateReserve') {
+                const replaceSelect = document.querySelector('#replaceBeerSelect');
+                if (replaceSelect) capturedReplaceId = replaceSelect.value;
+            }
+            
             pendingAdminAction = null;
             message = `Executing ${actionType}...`; render();
 
@@ -1892,25 +1902,13 @@
                     const reserve = getBeerById(reserveId);
                     if (!reserve) throw new Error('Reserve beer not found');
                     
-                    // Read the dropdown to get which beer is being replaced
-                    const replaceSelect = $('#replaceBeerSelect');
-                    const replaceId = replaceSelect ? replaceSelect.value : null;
-                    const replaced = replaceId ? getBeerById(replaceId) : null;
+                    // Use the dropdown value we captured before the modal was dismissed.
+                    const replaced = capturedReplaceId ? getBeerById(capturedReplaceId) : null;
                     
                     const batch = writeBatch(db);
                     const reserveRef = doc(db, ...getPublicDataPathSegments(), BEERS_COLLECTION_NAME, reserveId);
                     
                     if (replaced) {
-                        // DEBUG: log what we're about to write
-                        console.log('[activate]', {
-                            reserveName: reserve.name,
-                            reserveOldOrder: reserve.order,
-                            reserveOldGroup: reserve.group,
-                            replacedName: replaced.name,
-                            replacedOrder: replaced.order,
-                            replacedGroup: replaced.group,
-                            willWriteReserveOrder: replaced.order !== undefined ? replaced.order : (beers.length * 10)
-                        });
                         // Reserve keeps its OWN group (a Special reserve stays a Special).
                         // But it INHERITS the replaced beer's order field so it slots into
                         // the same number position within its own group. The replaced beer
@@ -1935,7 +1933,6 @@
                     }
                     
                     await batch.commit();
-                    console.log('[activate] batch committed');
                     message = replaced
                         ? `**${reserve.name}** is now on tap, replacing **${replaced.name}**.`
                         : `**${reserve.name}** is now on tap.`;
