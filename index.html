@@ -34,7 +34,7 @@
 </head>
 <body>
 
-    <div id="app" class="min-h-screen p-4 sm:p-8 text-gray-800 flex flex-col justify-between overflow-x-hidden">
+    <div id="app" class="min-h-screen p-4 sm:p-8 text-gray-800">
         </div>
 
     <script type="module">
@@ -367,8 +367,8 @@
 
         function renderVoteModal() {
             return `
-                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm overflow-y-auto z-50 p-4 animate-in fade-in duration-200 flex items-start sm:items-center justify-center">
-                    <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center transform scale-100">
+                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                    <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center transform scale-100 max-h-[90vh] overflow-y-auto">
                         <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-amber-100 mb-4 shadow-inner">
                             <i data-lucide="star" class="h-8 w-8 text-amber-500 fill-amber-500"></i>
                         </div>
@@ -412,8 +412,8 @@
             }
             
             return `
-                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm overflow-y-auto z-50 p-4 animate-in fade-in duration-200 flex items-start sm:items-center justify-center">
-                    <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center transform scale-100">
+                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                    <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center transform scale-100 max-h-[90vh] overflow-y-auto">
                         <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full ${iconBg} mb-4 shadow-inner">
                             <i data-lucide="${icon}" class="h-8 w-8 ${iconColor}"></i>
                         </div>
@@ -432,8 +432,8 @@
             const beer = getBeerById(beerId);
             if (!beer) return '';
             return `
-                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm overflow-y-auto z-50 p-4 animate-in fade-in duration-200 flex items-start sm:items-center justify-center">
-                    <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-8 text-center transform scale-100">
+                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                    <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 sm:p-8 text-center transform scale-100 max-h-[90vh] overflow-y-auto">
                         <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-blue-100 mb-4 shadow-inner">
                             <i data-lucide="pencil" class="h-8 w-8 text-blue-500 fill-blue-500"></i>
                         </div>
@@ -509,8 +509,8 @@
             if (!g) return '';
             const beersInGroup = beers.filter(b => b.group === g.name).length;
             return `
-                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm overflow-y-auto z-50 p-4 animate-in fade-in duration-200 flex items-start sm:items-center justify-center">
-                    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 transform scale-100">
+                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 transform scale-100 max-h-[90vh] overflow-y-auto">
                         <h3 class="text-xl font-extrabold text-gray-900 mb-1">Edit Group</h3>
                         <p class="text-sm text-gray-500 mb-4">${beersInGroup} beer${beersInGroup === 1 ? '' : 's'} in this group. Renaming will update them all.</p>
                         <form id="editGroupForm" data-group-id="${groupId}" class="space-y-3">
@@ -534,8 +534,8 @@
             if (!b) return '';
             const beersInBar = beers.filter(beer => beer.bar === b.name).length;
             return `
-                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm overflow-y-auto z-50 p-4 animate-in fade-in duration-200 flex items-start sm:items-center justify-center">
-                    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 transform scale-100">
+                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 transform scale-100 max-h-[90vh] overflow-y-auto">
                         <h3 class="text-xl font-extrabold text-gray-900 mb-1">Edit Bar</h3>
                         <p class="text-sm text-gray-500 mb-4">${beersInBar} beer${beersInBar === 1 ? '' : 's'} assigned. Renaming will update them all.</p>
                         <form id="editBarForm" data-bar-id="${barId}" class="space-y-3">
@@ -1141,8 +1141,8 @@
             if (isAdmin) {
                 const sortedBeers = getSortedBeers();
                 return `
-                    <div class="max-w-xl mx-auto space-y-8 pb-12">
-                        <div class="bg-white p-6 rounded-xl shadow-lg">
+                    <div class="max-w-xl mx-auto space-y-8 pb-12 w-full min-w-0">
+                        <div class="bg-white p-6 rounded-xl shadow-lg overflow-hidden break-words">
                             <div class="flex justify-between items-center mb-6">
                                 <h2 class="text-2xl font-bold text-gray-800">Admin Panel</h2>
                                 <button id="signOutButton" class="text-xs bg-red-100 text-red-600 px-3 py-1 rounded hover:bg-red-200">Sign Out</button>
@@ -1222,7 +1222,7 @@
 
                             <div class="mb-8 pb-8 border-b border-gray-100">
                                 <h3 class="font-bold text-gray-700 mb-2">Import Beers from CSV</h3>
-                                <p class="text-xs text-gray-500 mb-3">Columns: <span class="font-mono bg-gray-100 px-1 rounded">name, brewer, style, abv</span> &middot; optional: <span class="font-mono bg-gray-100 px-1 rounded">description, group, bar, allergens, vegan, status, tap, image</span> &middot; <em>tap column is per-bar — leave blank to auto-assign</em></p>
+                                <p class="text-xs text-gray-500 mb-3 break-words">Columns: <span class="font-mono bg-gray-100 px-1 rounded">name, brewer, style, abv</span> &middot; optional: <span class="font-mono bg-gray-100 px-1 rounded">description, group, bar, allergens, vegan, status, tap, image</span> &middot; <em>tap column is per-bar — leave blank to auto-assign</em></p>
                                 <div class="space-y-2">
                                     <input type="file" id="csvFileInput" accept=".csv,.tsv,.txt" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100" />
                                     <div id="csvPreview"></div>
