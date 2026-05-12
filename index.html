@@ -30,16 +30,13 @@
         .admin-list::-webkit-scrollbar { width: 8px; }
         .admin-list::-webkit-scrollbar-thumb { background-color: #fca5a5; border-radius: 4px; }
         .admin-list::-webkit-scrollbar-track { background-color: #fff; }
-        /* Mobile flex-item shrinkability.
-           Default browser min-width on flex/grid items is "min-content", which prevents
-           items shrinking smaller than their longest unbreakable word — that's what was
-           pushing the admin card past the viewport. This rule lets flex/grid items shrink
-           below their content's intrinsic width on mobile. Targeted at the patterns that
-           need it; doesn't force max-width on every element. */
+        /* Belt-and-braces mobile width enforcement.
+           Even if some descendant has min-content > viewport, the admin card
+           must never exceed available space minus padding. */
         @media (max-width: 640px) {
-            #app main .bg-white > * { min-width: 0; }
-            #app main .bg-white .flex > * { min-width: 0; }
-            #app main .bg-white .grid > * { min-width: 0; }
+            #app main { max-width: 100% !important; width: 100% !important; }
+            #app main > * { max-width: 100% !important; }
+            #app main * { max-width: 100% !important; min-width: 0 !important; }
         }
     </style>
 </head>
