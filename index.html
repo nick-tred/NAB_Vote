@@ -107,6 +107,8 @@
         let votesLoadedAt = null; // Timestamp of last full-votes fetch (for "last updated" UI)
         let groups = [];       // Beer groupings (Golden/Amber/Dark/Special etc.) — admin-managed
         let editingGroupId = null; // State for tracking which group is being edited
+        let bars = [];         // Bars (Inside Bar / Outside Bar etc.) — admin-managed
+        let editingBarId = null; // State for tracking which bar is being edited
         let currentScreen = 'voting';
         let message = '';
         let pendingVote = null;
@@ -120,6 +122,7 @@
         const BEERS_COLLECTION_NAME = 'beers';
         const VOTES_COLLECTION_NAME = 'votes';
         const GROUPS_COLLECTION_NAME = 'groups';
+        const BARS_COLLECTION_NAME = 'bars';
         const ADMINS_COLLECTION_NAME = 'admins';
         const SETTINGS_COLLECTION_NAME = 'settings';
         const SETTINGS_DOC_ID = 'config';
@@ -190,6 +193,25 @@
             return groups.find(g => (g.name || '').toLowerCase() === name.toLowerCase()) || null;
         };
 
+        const getSortedBars = () => {
+            return [...bars].sort((a, b) => {
+                const oa = a.order !== undefined ? a.order : 9999;
+                const ob = b.order !== undefined ? b.order : 9999;
+                return oa - ob || (a.name || '').localeCompare(b.name || '');
+            });
+        };
+
+        const getBarByName = (name) => {
+            if (!name) return null;
+            return bars.find(b => (b.name || '').toLowerCase() === name.toLowerCase()) || null;
+        };
+
+        // Single-bar mode is active when no bars are configured. In that mode, the bar
+        // column on beer forms is hidden, the TV never groups by bar, and the voting
+        // screen has no bar outer-grouping. Lets a single-bar festival run with zero
+        // bar-related UI clutter.
+        const isMultiBar = () => bars.length > 1;
+
         const getSortedBeers = () => {
             return [...beers].sort((a, b) => {
                 // Sort by group order first (so all Goldens come before all Ambers, etc.)
@@ -209,11 +231,15 @@
         // Active = visible on voting/TV. Reserves and retired beers are hidden from punters.
         const getActiveBeers = () => getSortedBeers().filter(b => (b.status || 'active') === 'active');
 
-        // Find the lowest unused tap number across ALL beers (including reserves/retired —
-        // we don't want to assign a reserve a number that's already taken by an active beer).
-        // Used for auto-assigning when admin adds a beer without specifying a number.
-        const getNextAvailableTapNumber = () => {
-            const used = new Set(beers.map(b => b.tapNumber).filter(n => typeof n === 'number' && n > 0));
+        // Find the lowest unused tap number — scoped to a bar if multi-bar is in use,
+        // otherwise across all beers. Used for auto-assigning when admin adds a beer
+        // without specifying a number. Per-bar scoping means each bar can have its own
+        // "tap 1, 2, 3..." sequence.
+        const getNextAvailableTapNumber = (barName = null) => {
+            const scoped = barName !== null
+                ? beers.filter(b => (b.bar || '') === barName)
+                : beers;
+            const used = new Set(scoped.map(b => b.tapNumber).filter(n => typeof n === 'number' && n > 0));
             let n = 1;
             while (used.has(n)) n++;
             return n;
@@ -317,6 +343,8 @@
                 contentHtml += renderEditBeerModal(editingBeerId);
             } else if (editingGroupId) {
                 contentHtml += renderEditGroupModal(editingGroupId);
+            } else if (editingBarId) {
+                contentHtml += renderEditBarModal(editingBarId);
             }
 
             appDiv.innerHTML = contentHtml;
@@ -425,6 +453,13 @@
                                 </select>
                                 <input type="text" name="allergens" placeholder="Allergens (e.g. Gluten)" class="px-3 py-2 border rounded w-full" value="${sanitize(beer.allergens || '')}" />
                             </div>
+                            ${bars.length > 0 ? `
+                            <select name="bar" class="px-3 py-2 border rounded w-full bg-white">
+                                <option value=""${!beer.bar ? ' selected' : ''}>Bar (optional)</option>
+                                ${getSortedBars().map(b => `<option value="${sanitize(b.name)}"${beer.bar === b.name ? ' selected' : ''}>${sanitize(b.name)}</option>`).join('')}
+                                ${beer.bar && !getBarByName(beer.bar) ? `<option value="${sanitize(beer.bar)}" selected>${sanitize(beer.bar)} (unknown bar)</option>` : ''}
+                            </select>
+                            ` : ''}
                             <div class="flex items-center gap-4 flex-wrap">
                                 <label class="flex items-center gap-2 text-sm text-gray-600 select-none">
                                     <input type="checkbox" name="vegan" class="w-4 h-4 rounded"${beer.vegan ? ' checked' : ''} />
@@ -476,6 +511,26 @@
                                 <input type="color" name="color" value="${sanitize(g.color || '#C2A858')}" class="w-12 h-10 border rounded cursor-pointer" />
                                 <span class="text-xs text-gray-400">Used as accent on the tap list</span>
                             </label>
+                            <div class="grid grid-cols-2 gap-3 mt-4">
+                                <button type="button" onclick="cancelAction()" class="w-full py-2.5 px-4 border border-gray-300 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-50 transition">Cancel</button>
+                                <button type="submit" class="w-full py-2.5 px-4 bg-blue-600 rounded-xl text-sm font-bold text-white hover:bg-blue-700 shadow-md transition">Save</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>`;
+        }
+
+        function renderEditBarModal(barId) {
+            const b = bars.find(x => x.id === barId);
+            if (!b) return '';
+            const beersInBar = beers.filter(beer => beer.bar === b.name).length;
+            return `
+                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 transform scale-100">
+                        <h3 class="text-xl font-extrabold text-gray-900 mb-1">Edit Bar</h3>
+                        <p class="text-sm text-gray-500 mb-4">${beersInBar} beer${beersInBar === 1 ? '' : 's'} assigned. Renaming will update them all.</p>
+                        <form id="editBarForm" data-bar-id="${barId}" class="space-y-3">
+                            <input type="text" name="name" placeholder="Bar name" class="px-3 py-2 border rounded w-full" value="${sanitize(b.name)}" required maxlength="40" />
                             <div class="grid grid-cols-2 gap-3 mt-4">
                                 <button type="button" onclick="cancelAction()" class="w-full py-2.5 px-4 border border-gray-300 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-50 transition">Cancel</button>
                                 <button type="submit" class="w-full py-2.5 px-4 bg-blue-600 rounded-xl text-sm font-bold text-white hover:bg-blue-700 shadow-md transition">Save</button>
@@ -579,6 +634,7 @@
             pendingAdminAction = null;
             editingBeerId = null;
             editingGroupId = null;
+            editingBarId = null;
             expandedBeerId = null;
             ensureFullVotesListener();
             render();
@@ -624,6 +680,8 @@
                 editingBeerId = null;
             } else if (editingGroupId) {
                 editingGroupId = null;
+            } else if (editingBarId) {
+                editingBarId = null;
             } else if (expandedBeerId) {
                 expandedBeerId = null;
             }
@@ -673,45 +731,58 @@
         };
 
         function renderTV() {
-            const sortedBeers = getActiveBeers();
+            const allActive = getActiveBeers();
             const nowPouringId = getNowPouringId();
             
             if (!userId) {
                 return `<div class="flex justify-center items-center h-screen" style="background-color:#C2A858"><p class="text-2xl text-white font-bold animate-pulse drop-shadow">Loading tap list...</p></div>`;
             }
 
-            if (sortedBeers.length === 0) {
+            if (allActive.length === 0) {
                 return `<div class="flex justify-center items-center h-screen" style="background-color:#C2A858"><p class="text-2xl text-white/80 font-bold drop-shadow">No beers added yet.</p></div>`;
             }
 
-            // Bucket beers by group, preserving group order from getSortedBeers().
-            // Beers without a recognised group go into a final "Other" bucket.
-            // Each beer carries its own tapNumber — a stable identifier independent of
-            // display position. Reserves inherit a tap number when activated, so the
-            // number sticks to the beer rather than to a slot in the list.
-            const beerGroups = new Map(); // groupName -> { color, beers: [{ beer, beerNum }] }
-            sortedBeers.forEach((beer) => {
-                const groupDoc = getGroupByName(beer.group);
-                const groupName = groupDoc ? groupDoc.name : (beer.group || 'Other');
-                const color = groupDoc ? (groupDoc.color || '#8A7438') : '#8A7438';
-                if (!beerGroups.has(groupName)) {
-                    beerGroups.set(groupName, { color, beers: [] });
+            // Decide what to show based on URL params and how many bars exist:
+            //  - ?bar=X → show only that bar
+            //  - Multi-bar mode (no filter) → show all bars side-by-side, each with its own groups
+            //  - Single-bar mode → no bar layer, just groups (legacy behaviour)
+            const barFilter = getTvBarFilter();
+            const multiBar = bars.length > 1;
+            
+            let displayBeers = allActive;
+            let headerTitle = 'Tap List';
+            if (barFilter) {
+                displayBeers = allActive.filter(b => (b.bar || '').toLowerCase() === barFilter.toLowerCase());
+                const matchedBar = getBarByName(barFilter);
+                headerTitle = matchedBar ? matchedBar.name : barFilter;
+                if (displayBeers.length === 0) {
+                    return `<div class="flex justify-center items-center h-screen" style="background-color:#C2A858"><p class="text-2xl text-white/80 font-bold drop-shadow">No active beers at "${sanitize(headerTitle)}".</p></div>`;
                 }
-                beerGroups.get(groupName).beers.push({ beer, beerNum: beer.tapNumber || '?' });
-            });
-            // Within each group, sold-out beers fall to the bottom. Active beers above
-            // them, in tap-number order. Sold-out beers below, also in tap-number order
-            // (consistent ordering within each tier).
-            beerGroups.forEach((bucket) => {
-                bucket.beers.sort((a, b) => {
-                    const aSold = !!a.beer.soldOut;
-                    const bSold = !!b.beer.soldOut;
-                    if (aSold !== bSold) return aSold ? 1 : -1;
-                    const na = parseInt(a.beerNum) || 9999;
-                    const nb = parseInt(b.beerNum) || 9999;
-                    return na - nb;
+            }
+
+            // Buckets active beers into a Map<groupName, {color, beers: [{beer, beerNum}]}>
+            // with intra-group sorting (sold-out to bottom, tap-number ascending).
+            const bucketByGroup = (beerList) => {
+                const map = new Map();
+                beerList.forEach((beer) => {
+                    const groupDoc = getGroupByName(beer.group);
+                    const groupName = groupDoc ? groupDoc.name : (beer.group || 'Other');
+                    const color = groupDoc ? (groupDoc.color || '#8A7438') : '#8A7438';
+                    if (!map.has(groupName)) map.set(groupName, { color, beers: [] });
+                    map.get(groupName).beers.push({ beer, beerNum: beer.tapNumber || '?' });
                 });
-            });
+                map.forEach((bucket) => {
+                    bucket.beers.sort((a, b) => {
+                        const aSold = !!a.beer.soldOut;
+                        const bSold = !!b.beer.soldOut;
+                        if (aSold !== bSold) return aSold ? 1 : -1;
+                        const na = parseInt(a.beerNum) || 9999;
+                        const nb = parseInt(b.beerNum) || 9999;
+                        return na - nb;
+                    });
+                });
+                return map;
+            };
 
             const renderBeerCard = ({ beer, beerNum }) => {
                 const soldOut = !!beer.soldOut;
@@ -748,17 +819,13 @@
                     </div>`;
             };
 
-            let html = `
-                <div class="h-screen p-5 flex flex-col overflow-hidden" style="background-color:#C2A858">
-                    <header class="text-center mb-3 flex-shrink-0">
-                        <h1 class="text-6xl font-extrabold text-white tracking-tight drop-shadow-lg leading-none">Tap List</h1>
-                    </header>
-
-                    <div class="flex-grow rounded-2xl shadow-2xl p-5 min-h-0 flex flex-col gap-3 overflow-hidden" style="background-color: #FAF6EC; border: 1px solid rgba(194, 168, 88, 0.4);">`;
-            
-            // Render each group as a section: coloured header band + 2-column grid of beers
-            beerGroups.forEach(({ color, beers: groupBeers }, groupName) => {
-                html += `
+            // Renders one bar's worth of content (group sections) inside a column.
+            // Used both as the WHOLE TV (single-bar / filtered) and as a column in combined view.
+            const renderBarColumn = (barName, beersForBar) => {
+                const beerGroups = bucketByGroup(beersForBar);
+                let sectionsHtml = '';
+                beerGroups.forEach(({ color, beers: groupBeers }, groupName) => {
+                    sectionsHtml += `
                         <section class="flex-grow flex flex-col min-h-0">
                             <div class="flex items-center gap-3 mb-1 flex-shrink-0">
                                 <div class="flex-shrink-0 w-2 h-7 rounded-sm" style="background-color: ${sanitize(color)};"></div>
@@ -766,11 +833,52 @@
                                 <div class="flex-grow h-px" style="background-color: ${sanitize(color)}; opacity: 0.3;"></div>
                                 <span class="text-xs font-semibold text-gray-400">${groupBeers.length} beer${groupBeers.length === 1 ? '' : 's'}</span>
                             </div>
-                            <div class="flex-grow grid grid-cols-3 gap-x-6 min-h-0 overflow-hidden" style="grid-auto-rows: minmax(0, 1fr);">
+                            <div class="flex-grow grid grid-cols-${multiBar && !barFilter ? '2' : '3'} gap-x-6 min-h-0 overflow-hidden" style="grid-auto-rows: minmax(0, 1fr);">
                                 ${groupBeers.map(renderBeerCard).join('')}
                             </div>
                         </section>`;
-            });
+                });
+                return sectionsHtml;
+            };
+
+            let html = `
+                <div class="h-screen p-5 flex flex-col overflow-hidden" style="background-color:#C2A858">
+                    <header class="text-center mb-3 flex-shrink-0">
+                        <h1 class="text-6xl font-extrabold text-white tracking-tight drop-shadow-lg leading-none">${sanitize(headerTitle)}</h1>
+                    </header>
+
+                    <div class="flex-grow rounded-2xl shadow-2xl p-5 min-h-0 flex ${multiBar && !barFilter ? 'flex-row gap-6' : 'flex-col gap-3'} overflow-hidden" style="background-color: #FAF6EC; border: 1px solid rgba(194, 168, 88, 0.4);">`;
+            
+            if (multiBar && !barFilter) {
+                // Combined view: each bar is a vertical column with its own dark header,
+                // then its own group sections beneath. Bar columns sit side-by-side.
+                getSortedBars().forEach((bar) => {
+                    const beersForBar = displayBeers.filter(b => (b.bar || '') === bar.name);
+                    if (beersForBar.length === 0) return; // Skip bars with no active beers
+                    html += `
+                        <div class="flex-1 flex flex-col min-h-0 min-w-0 gap-3">
+                            <div class="flex-shrink-0 text-center py-2 rounded-lg" style="background-color: #1e293b; color: #FAF6EC;">
+                                <div class="text-lg font-black uppercase tracking-widest">${sanitize(bar.name)}</div>
+                            </div>
+                            ${renderBarColumn(bar.name, beersForBar)}
+                        </div>`;
+                });
+                // Beers without a bar assignment fall into an unlabelled column at the end —
+                // only shown if any exist, to keep the layout clean otherwise.
+                const unbarredBeers = displayBeers.filter(b => !b.bar);
+                if (unbarredBeers.length > 0) {
+                    html += `
+                        <div class="flex-1 flex flex-col min-h-0 min-w-0 gap-3">
+                            <div class="flex-shrink-0 text-center py-2 rounded-lg" style="background-color: #475569; color: #FAF6EC;">
+                                <div class="text-lg font-black uppercase tracking-widest">Other</div>
+                            </div>
+                            ${renderBarColumn(null, unbarredBeers)}
+                        </div>`;
+                }
+            } else {
+                // Single-bar mode, or filtered to one bar: just the group sections
+                html += renderBarColumn(barFilter, displayBeers);
+            }
 
             html += `
                     </div>
@@ -865,67 +973,94 @@
                         </div>
                         <div>`;
                 
-                // Bucket beers by group. Each beer carries its own tapNumber (stable
-                // across reserve activation) — display order within a group is just by
-                // tap number ascending.
-                const grouped = new Map();
-                votingBeers.forEach((beer) => {
-                    const g = beer.group || 'Other';
-                    if (!grouped.has(g)) grouped.set(g, []);
-                    grouped.get(g).push({ beer, beerNum: beer.tapNumber || '?' });
-                });
-                grouped.forEach((arr) => {
-                    arr.sort((a, b) => {
-                        const na = parseInt(a.beerNum) || 9999;
-                        const nb = parseInt(b.beerNum) || 9999;
-                        return na - nb;
+                // Render groups within a bar (or for the whole list in single-bar mode).
+                // Extracted so it can be called once-per-bar in multi-bar mode without duplication.
+                const renderGroupedBeers = (beerList) => {
+                    let inner = '';
+                    const grouped = new Map();
+                    beerList.forEach((beer) => {
+                        const g = beer.group || 'Other';
+                        if (!grouped.has(g)) grouped.set(g, []);
+                        grouped.get(g).push({ beer, beerNum: beer.tapNumber || '?' });
                     });
-                });
-                
-                grouped.forEach((beerList, groupName) => {
-                    const groupDoc = getGroupByName(groupName);
-                    const headerColor = groupDoc && groupDoc.color ? groupDoc.color : '#475569';
-                    if (grouped.size > 1) {
-                        html += `<div class="px-3 sm:px-4 pt-3 pb-1.5 bg-slate-50 border-b border-gray-100 flex items-center gap-2">
-                            <div class="flex-shrink-0 w-1.5 h-4 rounded-sm" style="background-color: ${sanitize(headerColor)};"></div>
-                            <h3 class="text-xs font-black uppercase tracking-widest" style="color: ${sanitize(headerColor)};">${sanitize(groupName)}</h3>
+                    grouped.forEach((arr) => {
+                        arr.sort((a, b) => {
+                            const na = parseInt(a.beerNum) || 9999;
+                            const nb = parseInt(b.beerNum) || 9999;
+                            return na - nb;
+                        });
+                    });
+                    grouped.forEach((bList, groupName) => {
+                        const groupDoc = getGroupByName(groupName);
+                        const headerColor = groupDoc && groupDoc.color ? groupDoc.color : '#475569';
+                        if (grouped.size > 1) {
+                            inner += `<div class="px-3 sm:px-4 pt-3 pb-1.5 bg-slate-50 border-b border-gray-100 flex items-center gap-2">
+                                <div class="flex-shrink-0 w-1.5 h-4 rounded-sm" style="background-color: ${sanitize(headerColor)};"></div>
+                                <h3 class="text-xs font-black uppercase tracking-widest" style="color: ${sanitize(headerColor)};">${sanitize(groupName)}</h3>
+                            </div>`;
+                        }
+                        inner += '<ul class="divide-y divide-gray-100">';
+                        bList.forEach(({ beer, beerNum }) => {
+                            const hasVoted = !!userVotesMap[beer.id];
+                            const soldOut = !!beer.soldOut;
+                            const hasAllergens = beer.allergens && beer.allergens.trim();
+                            const isNowPouring = beer.id === nowPouringId;
+                            inner += `
+                                    <li>
+                                        <button onclick="openBeerDetail('${beer.id}')" class="w-full flex items-center px-3 sm:px-4 py-3 hover:bg-slate-50 active:bg-slate-100 transition text-left ${soldOut ? 'opacity-60' : ''}">
+                                            <span class="flex-shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-full ${soldOut ? 'bg-gray-400' : 'bg-slate-700'} text-white font-black text-sm shadow-sm mr-2 sm:mr-3">${beerNum}</span>
+                                            <div class="flex-grow min-w-0 mr-2">
+                                                <div class="flex items-center gap-1.5 flex-wrap">
+                                                    <span class="font-bold text-gray-800 text-sm leading-tight break-words">${sanitize(beer.name)}</span>
+                                                    ${isNowPouring ? `<span class="text-[9px] font-black text-white bg-blue-600 px-1.5 py-0.5 rounded uppercase tracking-wider">New</span>` : ''}
+                                                    ${beer.vegan ? `<i data-lucide="leaf" class="w-3 h-3 text-green-600 flex-shrink-0" title="Vegan-friendly"></i>` : ''}
+                                                    ${hasAllergens ? `<i data-lucide="alert-triangle" class="w-3 h-3 text-amber-600 flex-shrink-0" title="Contains: ${sanitize(beer.allergens)}"></i>` : ''}
+                                                </div>
+                                                <div class="text-xs text-gray-500 break-words mt-0.5">${sanitize(beer.style)}</div>
+                                            </div>
+                                            <div class="flex-shrink-0 flex items-center gap-1.5">
+                                                ${soldOut 
+                                                    ? `<span class="text-[9px] sm:text-[10px] font-bold text-red-700 bg-red-100 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Sold Out</span>` 
+                                                    : (hasVoted ? `<span class="text-[9px] sm:text-[10px] font-bold text-green-700 bg-green-100 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Voted</span>` : '')
+                                                }
+                                                <div class="text-right leading-none">
+                                                    <div class="text-xs sm:text-sm font-bold text-gray-700">${sanitize(beer.abv)}%</div>
+                                                    <div class="text-[9px] text-gray-400 uppercase tracking-wide">ABV</div>
+                                                </div>
+                                                <i data-lucide="chevron-right" class="w-4 h-4 text-gray-400"></i>
+                                            </div>
+                                        </button>
+                                    </li>`;
+                        });
+                        inner += '</ul>';
+                    });
+                    return inner;
+                };
+
+                // Multi-bar mode → bar as outer grouping (dark header bar), groups nested inside.
+                // Single-bar mode → flat groups, no bar chrome (preserves the existing single-bar look).
+                if (bars.length > 1) {
+                    getSortedBars().forEach((bar) => {
+                        const beersForBar = votingBeers.filter(b => (b.bar || '') === bar.name);
+                        if (beersForBar.length === 0) return;
+                        html += `<div class="bg-slate-700 text-white px-3 sm:px-4 py-2.5 flex items-center gap-2 sticky top-0 z-10">
+                            <i data-lucide="beer" class="w-4 h-4 flex-shrink-0"></i>
+                            <span class="text-sm font-black uppercase tracking-widest">${sanitize(bar.name)}</span>
+                            <span class="ml-auto text-[10px] font-semibold text-slate-300">${beersForBar.length} beer${beersForBar.length === 1 ? '' : 's'}</span>
                         </div>`;
-                    }
-                    html += '<ul class="divide-y divide-gray-100">';
-                    beerList.forEach(({ beer, beerNum }) => {
-                        const hasVoted = !!userVotesMap[beer.id];
-                        const soldOut = !!beer.soldOut;
-                        const hasAllergens = beer.allergens && beer.allergens.trim();
-                        const isNowPouring = beer.id === nowPouringId;
-                        html += `
-                                <li>
-                                    <button onclick="openBeerDetail('${beer.id}')" class="w-full flex items-center px-3 sm:px-4 py-3 hover:bg-slate-50 active:bg-slate-100 transition text-left ${soldOut ? 'opacity-60' : ''}">
-                                        <span class="flex-shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-full ${soldOut ? 'bg-gray-400' : 'bg-slate-700'} text-white font-black text-sm shadow-sm mr-2 sm:mr-3">${beerNum}</span>
-                                        <div class="flex-grow min-w-0 mr-2">
-                                            <div class="flex items-center gap-1.5 flex-wrap">
-                                                <span class="font-bold text-gray-800 text-sm leading-tight break-words">${sanitize(beer.name)}</span>
-                                                ${isNowPouring ? `<span class="text-[9px] font-black text-white bg-blue-600 px-1.5 py-0.5 rounded uppercase tracking-wider">New</span>` : ''}
-                                                ${beer.vegan ? `<i data-lucide="leaf" class="w-3 h-3 text-green-600 flex-shrink-0" title="Vegan-friendly"></i>` : ''}
-                                                ${hasAllergens ? `<i data-lucide="alert-triangle" class="w-3 h-3 text-amber-600 flex-shrink-0" title="Contains: ${sanitize(beer.allergens)}"></i>` : ''}
-                                            </div>
-                                            <div class="text-xs text-gray-500 break-words mt-0.5">${sanitize(beer.style)}</div>
-                                        </div>
-                                        <div class="flex-shrink-0 flex items-center gap-1.5">
-                                            ${soldOut 
-                                                ? `<span class="text-[9px] sm:text-[10px] font-bold text-red-700 bg-red-100 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Sold Out</span>` 
-                                                : (hasVoted ? `<span class="text-[9px] sm:text-[10px] font-bold text-green-700 bg-green-100 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Voted</span>` : '')
-                                            }
-                                            <div class="text-right leading-none">
-                                                <div class="text-xs sm:text-sm font-bold text-gray-700">${sanitize(beer.abv)}%</div>
-                                                <div class="text-[9px] text-gray-400 uppercase tracking-wide">ABV</div>
-                                            </div>
-                                            <i data-lucide="chevron-right" class="w-4 h-4 text-gray-400"></i>
-                                        </div>
-                                    </button>
-                                </li>`;
+                        html += renderGroupedBeers(beersForBar);
                     });
-                    html += '</ul>';
-                });
+                    // Beers with no bar assignment show in an "Other" section at the end.
+                    const unbarredBeers = votingBeers.filter(b => !b.bar);
+                    if (unbarredBeers.length > 0) {
+                        html += `<div class="bg-slate-500 text-white px-3 sm:px-4 py-2.5 flex items-center gap-2">
+                            <span class="text-sm font-black uppercase tracking-widest">Other</span>
+                        </div>`;
+                        html += renderGroupedBeers(unbarredBeers);
+                    }
+                } else {
+                    html += renderGroupedBeers(votingBeers);
+                }
                 
                 html += `</div>
                     </div>`;
@@ -1056,6 +1191,12 @@
                                     </select>
                                     <input type="text" name="allergens" placeholder="Allergens (e.g. Gluten)" class="px-3 py-2 border rounded w-full" />
                                 </div>
+                                ${bars.length > 0 ? `
+                                <select name="bar" class="px-3 py-2 border rounded w-full bg-white">
+                                    <option value="">Bar (optional)</option>
+                                    ${getSortedBars().map(b => `<option value="${sanitize(b.name)}">${sanitize(b.name)}</option>`).join('')}
+                                </select>
+                                ` : ''}
                                 <div class="flex items-center gap-4 flex-wrap">
                                     <label class="flex items-center gap-2 text-sm text-gray-600 select-none">
                                         <input type="checkbox" name="vegan" class="w-4 h-4 rounded" />
@@ -1077,7 +1218,7 @@
 
                             <div class="mb-8 pb-8 border-b border-gray-100">
                                 <h3 class="font-bold text-gray-700 mb-2">Import Beers from CSV</h3>
-                                <p class="text-xs text-gray-500 mb-3">Columns: <span class="font-mono bg-gray-100 px-1 rounded">name, brewer, style, abv</span> &middot; optional: <span class="font-mono bg-gray-100 px-1 rounded">description, group, allergens, vegan, status, tap, image</span> &middot; <em>tap column is the tap number — leave blank to auto-assign</em></p>
+                                <p class="text-xs text-gray-500 mb-3">Columns: <span class="font-mono bg-gray-100 px-1 rounded">name, brewer, style, abv</span> &middot; optional: <span class="font-mono bg-gray-100 px-1 rounded">description, group, bar, allergens, vegan, status, tap, image</span> &middot; <em>tap column is per-bar — leave blank to auto-assign</em></p>
                                 <div class="space-y-2">
                                     <input type="file" id="csvFileInput" accept=".csv,.tsv,.txt" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100" />
                                     <div id="csvPreview"></div>
@@ -1088,6 +1229,46 @@
                                 </div>
                             </div>
                             
+                            <div class="mb-8 pb-8 border-b border-gray-100">
+                                <h3 class="font-bold text-gray-700 mb-2">Manage Bars</h3>
+                                <p class="text-xs text-gray-500 mb-3">Bars are physical locations at the festival (e.g. Inside Bar, Outside Bar). Skip this section to run as a single-bar festival.</p>
+                                
+                                <ul class="space-y-2 mb-3">
+                                    ${getSortedBars().map((b, index, arr) => {
+                                        const beersInBar = beers.filter(beer => beer.bar === b.name).length;
+                                        const tvUrl = `${window.location.origin + window.location.pathname}?screen=tv&bar=${encodeURIComponent(b.name)}`;
+                                        return `
+                                        <li class="flex items-center p-2.5 bg-gray-50 rounded border border-gray-100">
+                                            <div class="flex flex-col space-y-1 mr-2">
+                                                <button onclick="handleReorderBar('${b.id}', 'up')" class="p-1 hover:bg-gray-200 rounded text-gray-500 ${index === 0 ? 'opacity-30 cursor-not-allowed' : ''}">
+                                                    <i data-lucide="chevron-up" class="w-4 h-4"></i>
+                                                </button>
+                                                <button onclick="handleReorderBar('${b.id}', 'down')" class="p-1 hover:bg-gray-200 rounded text-gray-500 ${index === arr.length - 1 ? 'opacity-30 cursor-not-allowed' : ''}">
+                                                    <i data-lucide="chevron-down" class="w-4 h-4"></i>
+                                                </button>
+                                            </div>
+                                            <i data-lucide="beer" class="w-5 h-5 text-amber-600 mr-3 flex-shrink-0"></i>
+                                            <div class="flex-grow min-w-0">
+                                                <div class="font-bold text-gray-800 text-sm">${sanitize(b.name)}</div>
+                                                <div class="text-xs text-gray-500">${beersInBar} beer${beersInBar === 1 ? '' : 's'} · <a href="${tvUrl}" target="_blank" class="text-blue-600 hover:underline">Open bar-only TV</a></div>
+                                            </div>
+                                            <button onclick="initEditBar('${b.id}')" class="text-blue-500 hover:text-blue-600 p-2 mr-1">
+                                                <i data-lucide="pencil" class="w-4 h-4"></i>
+                                            </button>
+                                            <button onclick="handleDeleteBar('${b.id}')" class="text-red-400 hover:text-red-600 p-2">
+                                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                            </button>
+                                        </li>`;
+                                    }).join('')}
+                                </ul>
+                                ${getSortedBars().length === 0 ? '<p class="text-sm text-gray-500 italic mb-3">No bars configured — running in single-bar mode (no bar groupings on the TV or voting screen).</p>' : ''}
+                                
+                                <form id="addBarForm" class="flex gap-2">
+                                    <input type="text" name="name" placeholder="Bar name (e.g. Inside Bar)" class="flex-grow px-3 py-2 border rounded text-sm" required maxlength="40" />
+                                    <button type="submit" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded text-sm transition flex-shrink-0">Add</button>
+                                </form>
+                            </div>
+
                             <div class="mb-8 pb-8 border-b border-gray-100">
                                 <h3 class="font-bold text-gray-700 mb-2">Manage Groups</h3>
                                 <p class="text-xs text-gray-500 mb-3">Groups appear as section headers on the tap list. Use arrows to set display order.</p>
@@ -1157,7 +1338,7 @@
                                                 ${isRetired ? '<span class="ml-1.5 text-[10px] font-bold text-gray-600 bg-gray-300 px-1.5 py-0.5 rounded uppercase tracking-wide align-middle">Retired</span>' : ''}
                                                 ${beer.soldOut && !isReserve && !isRetired ? '<span class="ml-1.5 text-[10px] font-bold text-red-700 bg-red-200 px-1.5 py-0.5 rounded uppercase tracking-wide align-middle">Sold Out</span>' : ''}
                                             </div>
-                                            <div class="text-xs text-gray-500 truncate">${sanitize(beer.brewer)}${beer.group ? ` · <span class="text-slate-600 font-semibold">${sanitize(beer.group)}</span>` : ''} ${beer.imageUrl ? '<span class="text-green-500 ml-1" title="Has image">📷</span>' : ''}${beer.vegan ? '<span class="text-green-600 ml-1" title="Vegan">🌱</span>' : ''}${beer.allergens && beer.allergens.trim() ? `<span class="text-amber-600 ml-1" title="Allergens: ${sanitize(beer.allergens)}">⚠️</span>` : ''}</div>
+                                            <div class="text-xs text-gray-500 truncate">${sanitize(beer.brewer)}${beer.group ? ` · <span class="text-slate-600 font-semibold">${sanitize(beer.group)}</span>` : ''}${beer.bar ? ` · <span class="text-amber-700 font-semibold">${sanitize(beer.bar)}</span>` : ''} ${beer.imageUrl ? '<span class="text-green-500 ml-1" title="Has image">📷</span>' : ''}${beer.vegan ? '<span class="text-green-600 ml-1" title="Vegan">🌱</span>' : ''}${beer.allergens && beer.allergens.trim() ? `<span class="text-amber-600 ml-1" title="Allergens: ${sanitize(beer.allergens)}">⚠️</span>` : ''}</div>
                                         </div>
                                         ${isReserve ? `
                                             <button onclick="initActivateReserve('${beer.id}')" title="Activate this reserve" class="px-3 py-1.5 mr-1 rounded bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition flex-shrink-0">
@@ -1271,6 +1452,14 @@
                         const groupsQuery = query(collection(db, ...getPublicDataPathSegments(), GROUPS_COLLECTION_NAME));
                         onSnapshot(groupsQuery, (snapshot) => {
                             groups = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                            render();
+                        });
+
+                        // Bars: tiny admin-managed collection (0-3 docs typically).
+                        // If empty, the app runs in single-bar mode with no bar chrome anywhere.
+                        const barsQuery = query(collection(db, ...getPublicDataPathSegments(), BARS_COLLECTION_NAME));
+                        onSnapshot(barsQuery, (snapshot) => {
+                            bars = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                             render();
                         });
 
@@ -1421,6 +1610,7 @@
             const imageIdx = headers.findIndex(h => h === 'image' || h === 'imageurl' || h === 'image_url' || h === 'image url' || h === 'img');
             const descIdx = headers.findIndex(h => h === 'description' || h === 'desc' || h === 'notes' || h === 'tasting notes');
             const groupIdx = headers.findIndex(h => h === 'group' || h === 'category' || h === 'colour' || h === 'color');
+            const barIdx = headers.findIndex(h => h === 'bar' || h === 'location');
             const allergensIdx = headers.findIndex(h => h === 'allergens' || h === 'allergen');
             const veganIdx = headers.findIndex(h => h === 'vegan' || h === 'vg');
             const statusIdx = headers.findIndex(h => h === 'status' || h === 'reserve');
@@ -1464,6 +1654,7 @@
                     description: descIdx !== -1 ? (cols[descIdx] || '') : '',
                     imageUrl: imageIdx !== -1 ? (cols[imageIdx] || '') : '',
                     group: groupIdx !== -1 ? groupNorm(cols[groupIdx]) : '',
+                    bar: barIdx !== -1 ? (cols[barIdx] || '').trim() : '',
                     allergens: allergensIdx !== -1 ? (cols[allergensIdx] || '') : '',
                     vegan: veganIdx !== -1 ? veganNorm(cols[veganIdx]) : false,
                     status: statusIdx !== -1 ? statusNorm(cols[statusIdx]) : 'active',
@@ -1509,17 +1700,29 @@
                     const chunk = pendingImportBeers.slice(i, i + BATCH_LIMIT);
                     chunk.forEach((beer, idx) => {
                         const ref = doc(collection(db, ...getPublicDataPathSegments(), BEERS_COLLECTION_NAME));
-                        // Auto-assign tap number for this beer. We use a local "claimed" set
-                        // alongside getNextAvailableTapNumber so beers within the same batch
-                        // don't all grab the same number.
+                        // Auto-assign tap number for this beer. The "claimed" set is keyed
+                        // by bar so each bar gets its own independent 1, 2, 3 sequence.
                         if (!window._claimedTapNumbers) {
-                            window._claimedTapNumbers = new Set(
-                                beers.map(b => b.tapNumber).filter(n => typeof n === 'number')
-                            );
+                            // Build initial map: bar name -> Set of already-used tap numbers
+                            window._claimedTapNumbers = new Map();
+                            beers.forEach(b => {
+                                if (typeof b.tapNumber === 'number') {
+                                    const key = b.bar || '';
+                                    if (!window._claimedTapNumbers.has(key)) {
+                                        window._claimedTapNumbers.set(key, new Set());
+                                    }
+                                    window._claimedTapNumbers.get(key).add(b.tapNumber);
+                                }
+                            });
                         }
+                        const barKey = beer.bar || '';
+                        if (!window._claimedTapNumbers.has(barKey)) {
+                            window._claimedTapNumbers.set(barKey, new Set());
+                        }
+                        const claimedForBar = window._claimedTapNumbers.get(barKey);
                         let tap = beer.tapNumber || 1;
-                        while (window._claimedTapNumbers.has(tap)) tap++;
-                        window._claimedTapNumbers.add(tap);
+                        while (claimedForBar.has(tap)) tap++;
+                        claimedForBar.add(tap);
                         batch.set(ref, {
                             name: beer.name,
                             brewer: beer.brewer,
@@ -1528,6 +1731,7 @@
                             description: beer.description || '',
                             imageUrl: beer.imageUrl || '',
                             group: beer.group || '',
+                            bar: beer.bar || '',
                             allergens: beer.allergens || '',
                             vegan: !!beer.vegan,
                             status: beer.status || 'active',
@@ -1598,8 +1802,9 @@
                     finalImageUrl = await compressImageToBase64(imageFile);
                 }
 
+                const barName = (form.bar?.value || '').trim();
                 const manualTap = form.tapNumber?.value ? parseInt(form.tapNumber.value) : null;
-                const tapNumber = manualTap && manualTap > 0 ? manualTap : getNextAvailableTapNumber();
+                const tapNumber = manualTap && manualTap > 0 ? manualTap : getNextAvailableTapNumber(barName);
 
                 await addDoc(collection(db, ...getPublicDataPathSegments(), BEERS_COLLECTION_NAME), {
                     name: beerName,
@@ -1609,6 +1814,7 @@
                     description: form.description.value.trim(),
                     imageUrl: finalImageUrl || '',
                     group: (form.group?.value || '').trim(),
+                    bar: barName,
                     allergens: (form.allergens?.value || '').trim(),
                     vegan: !!(form.vegan?.checked),
                     status: form.isReserve?.checked ? 'reserve' : 'active',
@@ -1666,6 +1872,7 @@
                     description: form.description.value.trim(),
                     imageUrl: finalImageUrl,
                     group: (form.group?.value || '').trim(),
+                    bar: (form.bar?.value || '').trim(),
                     allergens: (form.allergens?.value || '').trim(),
                     vegan: !!(form.vegan?.checked),
                     status: form.status?.value || 'active',
@@ -1747,12 +1954,14 @@
             if (!isAdmin) return;
             const reserve = getBeerById(reserveId);
             if (!reserve) return;
-            // Reserves can replace ANY active beer — a backup cask doesn't know in advance
-            // which tap it'll be put on. List sold-out beers first since they're the most
-            // likely targets, then the rest, all sorted by their tap position.
+            // Reserves can replace any active beer at the SAME bar (since the reserve cask
+            // is physically located at one bar). In single-bar mode (no bars configured),
+            // bar filtering is skipped.
+            const sameBarOnly = bars.length > 0;
             const candidates = beers.filter(b => 
                 b.id !== reserveId 
                 && (b.status || 'active') === 'active'
+                && (!sameBarOnly || (b.bar || '') === (reserve.bar || ''))
             ).sort((a, b) => {
                 // Sold-out beers first (most likely replacement targets)
                 if (a.soldOut && !b.soldOut) return -1;
@@ -1765,12 +1974,13 @@
                 if (groupOrderA !== groupOrderB) return groupOrderA - groupOrderB;
                 return (a.order || 0) - (b.order || 0);
             });
+            const barLabel = sameBarOnly && reserve.bar ? ` at ${reserve.bar}` : '';
             pendingAdminAction = {
                 actionType: 'activateReserve',
                 title: `Activate "${reserve.name}"`,
                 message: candidates.length > 0
-                    ? `This reserve will replace one of the beers below and take its position on the tap list. Pick the beer it's replacing:`
-                    : `No active beers to replace. The reserve will simply be activated and appended to the list.`,
+                    ? `This reserve will replace a beer${barLabel} and take its tap number. Pick the beer it's replacing:`
+                    : `No active beers${barLabel} to replace. The reserve will simply be activated.`,
                 confirmText: 'Activate Reserve',
                 icon: 'zap',
                 data: { reserveId, candidates: candidates.map(c => ({ id: c.id, name: c.name, soldOut: !!c.soldOut, group: c.group || '', tapNumber: c.tapNumber || null })) }
@@ -1896,6 +2106,118 @@
         };
         // ---------- End group CRUD ----------
 
+        // ---------- Bar CRUD ----------
+        async function handleAddBar(e) {
+            e.preventDefault();
+            if (!isAdmin) return;
+            const form = e.target;
+            const name = form.name.value.trim();
+            if (!name) return;
+            if (getBarByName(name)) {
+                message = `Bar "${name}" already exists.`;
+                render();
+                return;
+            }
+            try {
+                const sorted = getSortedBars();
+                const nextOrder = sorted.length > 0 ? (sorted[sorted.length - 1].order || 0) + 10 : 10;
+                await addDoc(collection(db, ...getPublicDataPathSegments(), BARS_COLLECTION_NAME), {
+                    name,
+                    order: nextOrder,
+                    created: serverTimestamp()
+                });
+                message = `Bar "${name}" added.`;
+                form.reset();
+            } catch (error) {
+                message = `Error adding bar: ${error.message}`;
+            } finally { render(); }
+        }
+
+        window.initEditBar = (barId) => {
+            editingBarId = barId;
+            render();
+        };
+
+        async function handleEditBar(e) {
+            e.preventDefault();
+            if (!isAdmin) return;
+            const form = e.target;
+            const barId = form.dataset.barId;
+            const oldBar = bars.find(b => b.id === barId);
+            if (!oldBar) return;
+            const newName = form.name.value.trim();
+            if (!newName) return;
+            const dup = bars.find(b => b.id !== barId && (b.name || '').toLowerCase() === newName.toLowerCase());
+            if (dup) {
+                message = `Another bar named "${newName}" already exists.`;
+                render();
+                return;
+            }
+            try {
+                const batch = writeBatch(db);
+                const barRef = doc(db, ...getPublicDataPathSegments(), BARS_COLLECTION_NAME, barId);
+                batch.update(barRef, { name: newName, updated: serverTimestamp() });
+                // Rename propagation — same pattern as groups: every beer that references
+                // the old bar name gets updated to the new name in the same batch.
+                let beersUpdated = 0;
+                if (oldBar.name !== newName) {
+                    beers.forEach(b => {
+                        if (b.bar === oldBar.name) {
+                            const beerRef = doc(db, ...getPublicDataPathSegments(), BEERS_COLLECTION_NAME, b.id);
+                            batch.update(beerRef, { bar: newName });
+                            beersUpdated++;
+                        }
+                    });
+                }
+                await batch.commit();
+                message = beersUpdated > 0
+                    ? `Bar renamed to "${newName}" — ${beersUpdated} beer${beersUpdated === 1 ? '' : 's'} updated.`
+                    : `Bar "${newName}" updated.`;
+                editingBarId = null;
+            } catch (error) {
+                message = `Error updating bar: ${error.message}`;
+            } finally { render(); }
+        }
+
+        window.handleDeleteBar = (barId) => {
+            if (!isAdmin) return;
+            const b = bars.find(x => x.id === barId);
+            if (!b) return;
+            const beersInBar = beers.filter(beer => beer.bar === b.name).length;
+            pendingAdminAction = {
+                actionType: 'deleteBar',
+                title: `Delete "${b.name}"?`,
+                message: beersInBar > 0
+                    ? `${beersInBar} beer${beersInBar === 1 ? ' is' : 's are'} assigned to this bar. They'll keep the "${b.name}" label but won't be grouped on the tap list until you reassign them.`
+                    : `This bar has no beers assigned. Safe to delete.`,
+                confirmText: 'Delete Bar',
+                icon: 'trash-2',
+                data: { barId }
+            };
+            render();
+        };
+
+        window.handleReorderBar = async (barId, direction) => {
+            if (!isAdmin) return;
+            const sorted = getSortedBars();
+            const idx = sorted.findIndex(b => b.id === barId);
+            if (idx === -1) return;
+            const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+            if (swapIdx < 0 || swapIdx >= sorted.length) return;
+            const a = sorted[idx];
+            const b = sorted[swapIdx];
+            try {
+                const batch = writeBatch(db);
+                batch.update(doc(db, ...getPublicDataPathSegments(), BARS_COLLECTION_NAME, a.id), { order: b.order || 0 });
+                batch.update(doc(db, ...getPublicDataPathSegments(), BARS_COLLECTION_NAME, b.id), { order: a.order || 0 });
+                await batch.commit();
+            } catch (error) {
+                message = `Error reordering: ${error.message}`;
+                render();
+            }
+        };
+        // ---------- End bar CRUD ----------
+
         window.handleDeleteBeer = (beerId) => {
             if (!isAdmin) return;
             const beer = getBeerById(beerId);
@@ -1966,6 +2288,11 @@
                     const groupName = groups.find(g => g.id === groupId)?.name || 'Group';
                     await deleteDoc(doc(db, ...getPublicDataPathSegments(), GROUPS_COLLECTION_NAME, groupId));
                     message = `Group **${groupName}** deleted. Any beers previously in this group keep the label but are no longer grouped on the tap list.`;
+                } else if (actionType === 'deleteBar') {
+                    const barId = data.barId;
+                    const barName = bars.find(b => b.id === barId)?.name || 'Bar';
+                    await deleteDoc(doc(db, ...getPublicDataPathSegments(), BARS_COLLECTION_NAME, barId));
+                    message = `Bar **${barName}** deleted. Any beers previously at this bar keep the label but are no longer grouped on the tap list.`;
                 } else if (actionType === 'activateReserve') {
                     const reserveId = data.reserveId;
                     const reserve = getBeerById(reserveId);
@@ -1986,7 +2313,7 @@
                         const replacedRef = doc(db, ...getPublicDataPathSegments(), BEERS_COLLECTION_NAME, replaced.id);
                         batch.update(reserveRef, {
                             status: 'active',
-                            tapNumber: replaced.tapNumber || getNextAvailableTapNumber(),
+                            tapNumber: replaced.tapNumber || getNextAvailableTapNumber(reserve.bar || ''),
                             activatedAt: serverTimestamp()
                         });
                         batch.update(replacedRef, {
@@ -1994,10 +2321,10 @@
                             tapNumber: null  // free up the number
                         });
                     } else {
-                        // No replacement — activate with a fresh tap number
+                        // No replacement — activate with a fresh tap number scoped to its bar
                         batch.update(reserveRef, {
                             status: 'active',
-                            tapNumber: reserve.tapNumber || getNextAvailableTapNumber(),
+                            tapNumber: reserve.tapNumber || getNextAvailableTapNumber(reserve.bar || ''),
                             activatedAt: serverTimestamp()
                         });
                     }
@@ -2031,16 +2358,28 @@
             const editGroupForm = $('#editGroupForm');
             if (editGroupForm) editGroupForm.addEventListener('submit', handleEditGroup);
 
+            // Bar form listeners
+            const addBarForm = $('#addBarForm');
+            if (addBarForm) addBarForm.addEventListener('submit', handleAddBar);
+            const editBarForm = $('#editBarForm');
+            if (editBarForm) editBarForm.addEventListener('submit', handleEditBar);
+
             // CSV file input listener
             const csvInput = $('#csvFileInput');
             if (csvInput) csvInput.addEventListener('change', function() { handleCSVFile(this); });
         }
 
-        // Detect TV mode from URL parameter (?screen=tv)
+        // Detect TV mode and bar filter from URL parameters
+        // ?screen=tv → combined view (all bars)
+        // ?screen=tv&bar=Inside Bar → only show that bar
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('screen') === 'tv') {
             currentScreen = 'tv';
         }
+        const getTvBarFilter = () => {
+            const param = new URLSearchParams(window.location.search).get('bar');
+            return param ? param.trim() : null;
+        };
 
         window.addEventListener('DOMContentLoaded', authenticateUser);
         window.changeScreen = changeScreen;
