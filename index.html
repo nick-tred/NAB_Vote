@@ -34,7 +34,7 @@
 </head>
 <body>
 
-    <div id="app" class="min-h-screen p-4 sm:p-8 text-gray-800 flex flex-col justify-between">
+    <div id="app" class="min-h-screen p-4 sm:p-8 text-gray-800 flex flex-col justify-between overflow-x-hidden">
         </div>
 
     <script type="module">
@@ -367,7 +367,7 @@
 
         function renderVoteModal() {
             return `
-                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm overflow-y-auto z-50 p-4 animate-in fade-in duration-200 flex items-start sm:items-center justify-center">
                     <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center transform scale-100">
                         <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-amber-100 mb-4 shadow-inner">
                             <i data-lucide="star" class="h-8 w-8 text-amber-500 fill-amber-500"></i>
@@ -412,7 +412,7 @@
             }
             
             return `
-                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm overflow-y-auto z-50 p-4 animate-in fade-in duration-200 flex items-start sm:items-center justify-center">
                     <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center transform scale-100">
                         <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full ${iconBg} mb-4 shadow-inner">
                             <i data-lucide="${icon}" class="h-8 w-8 ${iconColor}"></i>
@@ -432,7 +432,7 @@
             const beer = getBeerById(beerId);
             if (!beer) return '';
             return `
-                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm overflow-y-auto z-50 p-4 animate-in fade-in duration-200 flex items-start sm:items-center justify-center">
                     <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-8 text-center transform scale-100">
                         <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-blue-100 mb-4 shadow-inner">
                             <i data-lucide="pencil" class="h-8 w-8 text-blue-500 fill-blue-500"></i>
@@ -509,7 +509,7 @@
             if (!g) return '';
             const beersInGroup = beers.filter(b => b.group === g.name).length;
             return `
-                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm overflow-y-auto z-50 p-4 animate-in fade-in duration-200 flex items-start sm:items-center justify-center">
                     <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 transform scale-100">
                         <h3 class="text-xl font-extrabold text-gray-900 mb-1">Edit Group</h3>
                         <p class="text-sm text-gray-500 mb-4">${beersInGroup} beer${beersInGroup === 1 ? '' : 's'} in this group. Renaming will update them all.</p>
@@ -534,7 +534,7 @@
             if (!b) return '';
             const beersInBar = beers.filter(beer => beer.bar === b.name).length;
             return `
-                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm overflow-y-auto z-50 p-4 animate-in fade-in duration-200 flex items-start sm:items-center justify-center">
                     <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 transform scale-100">
                         <h3 class="text-xl font-extrabold text-gray-900 mb-1">Edit Bar</h3>
                         <p class="text-sm text-gray-500 mb-4">${beersInBar} beer${beersInBar === 1 ? '' : 's'} assigned. Renaming will update them all.</p>
@@ -1391,7 +1391,7 @@
                                     <i data-lucide="external-link" class="w-4 h-4 mr-2"></i>
                                     Open TV Display
                                 </a>
-                                <p class="text-xs text-gray-400 mt-2 font-mono text-center select-all">${window.location.origin + window.location.pathname}?screen=tv</p>
+                                <p class="text-xs text-gray-400 mt-2 font-mono text-center select-all break-all">${window.location.origin + window.location.pathname}?screen=tv</p>
                             </div>
                             
                             <h3 class="font-bold text-gray-700 mb-4 flex items-center">
